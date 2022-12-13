@@ -75,17 +75,27 @@ func transfer(dst io.WriteCloser, src io.ReadCloser) {
 
 func serveHTTP(w http.ResponseWriter, r *http.Request) {
 	logrus.Infof("New Conn Accepted: %s => %s => [%s] %s", r.RemoteAddr, socks5Addr, r.Method, r.Host)
+
 	d := &net.Dialer{Timeout: 10 * time.Second}
-	dialer, err := proxy.SOCKS5("tcp", socks5Addr, nil, d)
+	proxyDialer, err := proxy.SOCKS5("tcp", socks5Addr, nil, d)
+
 	if err != nil {
 		logrus.Errorf("Proxy Connect Failed: %v", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	if r.Method == "CONNECT" {
-		handleTunnel(w, r, dialer)
+	actualDialer := proxy.Dialer(d)
+	if len(urlRegexes) == 0 || match(urlRegexes, r.Host) {
+		logrus.Debug("Using proxy")
+		actualDialer = proxyDialer
 	} else {
-		handleHTTP(w, r, dialer)
+		logrus.Debug("Using direct")
+	}
+
+	if r.Method == "CONNECT" {
+		handleTunnel(w, r, actualDialer)
+	} else {
+		handleHTTP(w, r, actualDialer)
 	}
 }
